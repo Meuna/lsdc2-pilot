@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/meuna/lsdc2-serverwrap/internal"
+	"github.com/meuna/lsdc2-pilot/internal"
 
 	"go.uber.org/zap"
 )
@@ -27,18 +27,18 @@ func main() {
 	}
 	defer logger.Sync()
 
-	logger.Info("Running serverwrap", zap.String("version", Version), zap.String("Commit", Commit), zap.String("BuildDate", BuildDate))
+	logger.Info("Running lsdc2-pilot", zap.String("version", Version), zap.String("Commit", Commit), zap.String("BuildDate", BuildDate))
 
-	// Initialise wrapped from command line and env
-	wrapped := internal.NewWrapped(logger, os.Args[1:])
-	logger.Debug("wrapped initialised", zap.Any("wrapped", wrapped))
+	// Initialise pilot from command line and env
+	pilot := internal.NewPilot(logger, os.Args[1:])
+	logger.Debug("pilot initialised", zap.Any("pilot", pilot))
 
 	// Setup CloudWatch logger if running in EC2
-	if wrapped.InEc2Instance {
-		newLogger, err := wrapped.NewEc2CloudWatchTeeLogger(logger)
+	if pilot.InEc2Instance {
+		newLogger, err := pilot.NewEc2CloudWatchTeeLogger(logger)
 		if err != nil {
 			logger.Error("error in SetupEc2Monitoring", zap.Error(err))
-			wrapped.NotifyBackend("error", "Failure setting EC2 monitoring")
+			pilot.NotifyBackend("error", "Failure setting EC2 monitoring")
 		} else {
 			logger = newLogger
 			defer logger.Sync()
@@ -46,17 +46,17 @@ func main() {
 	}
 
 	// Prepare BPF to filter on incomming IP4 packes
-	wrapped.DetectIfaceAndAddHostFilter()
+	pilot.DetectIfaceAndAddHostFilter()
 
 	// Start the process
-	wrapped.StartProcess()
+	pilot.StartProcess()
 
 	// Start monitoring channels
 	pollingC := make(chan bool)
-	terminationCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
-	lowMemoryCheckTicker := time.NewTicker(wrapped.TerminationCheckInterval)
-	sniffTicker := time.NewTicker(wrapped.SniffInterval)
-	emptyTicker := time.NewTicker(wrapped.EmptyTimeout)
+	terminationCheckTicker := time.NewTicker(pilot.TerminationCheckInterval)
+	lowMemoryCheckTicker := time.NewTicker(pilot.TerminationCheckInterval)
+	sniffTicker := time.NewTicker(pilot.SniffInterval)
+	emptyTicker := time.NewTicker(pilot.EmptyTimeout)
 
 	sigC := make(chan os.Signal, 1)
 	signal.Notify(sigC, syscall.SIGTERM, syscall.SIGINT)
@@ -66,14 +66,14 @@ func main() {
 		lowMemoryCheckTicker.Stop()
 		sniffTicker.Stop()
 		emptyTicker.Stop()
-		wrapped.StopProcess()
+		pilot.StopProcess()
 	}()
 
-	if !wrapped.InEc2Instance {
+	if !pilot.InEc2Instance {
 		terminationCheckTicker.Stop()
 	}
 
-	if wrapped.LowMemoryWarningThresholdMiB == 0 && wrapped.LowMemorySignalThresholdMiB == 0 {
+	if pilot.LowMemoryWarningThresholdMiB == 0 && pilot.LowMemorySignalThresholdMiB == 0 {
 		lowMemoryCheckTicker.Stop()
 	}
 
@@ -83,26 +83,26 @@ func main() {
 		case packetFound := <-pollingC:
 			if packetFound {
 				logger.Debug("network activity detected")
-				emptyTicker.Reset(wrapped.EmptyTimeout)
+				emptyTicker.Reset(pilot.EmptyTimeout)
 			}
 		case <-sniffTicker.C:
 			go func() {
-				pollingC <- wrapped.PollProcessPackets()
+				pollingC <- pilot.PollProcessPackets()
 			}()
 		case <-emptyTicker.C:
 			logger.Info("server empty for too long")
-			wrapped.NotifyBackend("info", "Server empty. Terminating instance.")
+			pilot.NotifyBackend("info", "Server empty. Terminating instance.")
 			return
 		case <-terminationCheckTicker.C:
 			logger.Debug("checking SPOT termination")
 			terminationNotified, err := internal.SpotTerminationIsNotified()
 			if err != nil {
 				logger.Error("error getting termination notification", zap.Error(err))
-				wrapped.NotifyBackend("error", "Error worth checking in the EC2 instance")
+				pilot.NotifyBackend("error", "Error worth checking in the EC2 instance")
 			}
 			if terminationNotified {
 				logger.Info("spot termination detected")
-				wrapped.NotifyBackend("warning", "SPOT termination detected. Terminating instance.")
+				pilot.NotifyBackend("warning", "SPOT termination detected. Terminating instance.")
 				return
 			}
 		case <-lowMemoryCheckTicker.C:
@@ -110,19 +110,19 @@ func main() {
 			freeMemoryMib, err := internal.GetFreeMemoryMiB()
 			if err != nil {
 				logger.Error("error getting free memory", zap.Error(err))
-				wrapped.NotifyBackend("error", "Error checking free memory")
+				pilot.NotifyBackend("error", "Error checking free memory")
 			}
-			if freeMemoryMib < wrapped.LowMemorySignalThresholdMiB {
+			if freeMemoryMib < pilot.LowMemorySignalThresholdMiB {
 				logger.Warn("low memory signal", zap.Int64("freeMemory", freeMemoryMib))
-				wrapped.NotifyBackend("warning", fmt.Sprintf("Memory limit breached (%d MiB). Terminating instance.", freeMemoryMib))
+				pilot.NotifyBackend("warning", fmt.Sprintf("Memory limit breached (%d MiB). Terminating instance.", freeMemoryMib))
 				return
-			} else if freeMemoryMib < wrapped.LowMemoryWarningThresholdMiB {
+			} else if freeMemoryMib < pilot.LowMemoryWarningThresholdMiB {
 				logger.Warn("low memory warning", zap.Int64("freeMemory", freeMemoryMib))
-				wrapped.NotifyBackend("warning", fmt.Sprintf("Low memory warning (%d MiB)", freeMemoryMib))
+				pilot.NotifyBackend("warning", fmt.Sprintf("Low memory warning (%d MiB)", freeMemoryMib))
 			}
 		case <-sigC:
 			logger.Info("received signal")
-			wrapped.NotifyBackend("warning", "Signal received. Terminating instance.")
+			pilot.NotifyBackend("warning", "Signal received. Terminating instance.")
 			return
 		}
 	}

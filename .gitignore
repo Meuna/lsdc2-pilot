@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-serverwrap
+lsdc2-pilot
 
 # Test binary, built with `go test -c`
 *.test

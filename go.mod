@@ -1,4 +1,4 @@
-module github.com/meuna/lsdc2-serverwrap
+module github.com/meuna/lsdc2-pilot
 
 go 1.23.0
 

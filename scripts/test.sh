@@ -12,7 +12,7 @@ export LSDC2_SNIFF_FILTER="tcp port 443"
 export LSDC2_QUEUE_URL=
 export LSDC2_PERSIST_FILES="scripts;README.md"
 export LSDC2_BUCKET=munpri
-export LSDC2_SERVER=testserverwrap
+export LSDC2_SERVER=testpilot
 export LSDC2_ZIP=
 export LSDC2_ZIPFROM=$src_dir
 export LSDC2_CLOUDWATCH_LOG_GROUP=
@@ -28,4 +28,4 @@ export LSDC2_LOW_MEMORY_WARNING_MB=15000
 export PANIC_ON_SOCKET_ERROR=false
 export DISABLE_SHUTDOWN_CALLS=true
 
-$src_dir/serverwrap bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'
+$src_dir/lsdc2-pilot bash -c 'while true; do echo "Line written at $(date)"; sleep 1; done'
